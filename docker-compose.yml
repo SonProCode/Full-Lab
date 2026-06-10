@@ -1,0 +1,124 @@
+name: production-backend-lab
+services:
+  rabbitmq:
+    image: rabbitmq:4.1-management
+    hostname: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-lab}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-lab}
+    ports: ["${RABBITMQ_PORT:-5672}:5672", "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672", "${RABBITMQ_PROMETHEUS_PORT:-15692}:15692"]
+    volumes:
+      - rabbit-data:/var/lib/rabbitmq
+      - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - ./rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 15s
+      retries: 20
+
+  redis:
+    image: redis:7.4-alpine
+    command: redis-server /usr/local/etc/redis/redis.conf
+    ports: ["${REDIS_PORT:-6379}:6379"]
+    volumes:
+      - redis-data:/data
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.18.1
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: ${ES_JAVA_OPTS:--Xms512m -Xmx512m}
+    ports: ["${ELASTICSEARCH_PORT:-9200}:9200"]
+    volumes: [es-data:/usr/share/elasticsearch/data]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  api-server:
+    build: {context: ., dockerfile: api-server/Dockerfile}
+    environment:
+      SERVICE_NAME: api-server
+      LOG_FILE: /logs/api.json.log
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-lab}:${RABBITMQ_PASSWORD:-lab}@rabbitmq:5672/%2F
+      REDIS_URL: redis://redis:6379/0
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-10}
+    ports: ["${API_PORT:-8000}:8000"]
+    volumes: [app-logs:/logs]
+    depends_on:
+      rabbitmq: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      elasticsearch: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  consumer-worker:
+    build: {context: ., dockerfile: consumer-worker/Dockerfile}
+    environment:
+      SERVICE_NAME: consumer-worker
+      LOG_FILE: /logs/consumer.json.log
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-lab}:${RABBITMQ_PASSWORD:-lab}@rabbitmq:5672/%2F
+      REDIS_URL: redis://redis:6379/0
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      PREFETCH_COUNT: ${PREFETCH_COUNT:-10}
+      MAX_RETRIES: ${MAX_RETRIES:-3}
+      RETRY_DELAY_MS: ${RETRY_DELAY_MS:-3000}
+    volumes: [app-logs:/logs]
+    depends_on:
+      rabbitmq: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      elasticsearch: {condition: service_healthy}
+
+  log-parser:
+    image: docker.elastic.co/logstash/logstash:8.18.1
+    environment:
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      LS_JAVA_OPTS: ${LS_JAVA_OPTS:--Xms256m -Xmx256m}
+      XPACK_MONITORING_ENABLED: "false"
+    volumes:
+      - app-logs:/logs:ro
+      - ./log-parser/logstash.conf:/usr/share/logstash/pipeline/logstash.conf:ro
+    depends_on:
+      elasticsearch: {condition: service_healthy}
+
+  es-init:
+    image: curlimages/curl:8.13.0
+    profiles: ["tools"]
+    environment: {ELASTICSEARCH_URL: "http://elasticsearch:9200"}
+    volumes:
+      - ./elasticsearch/init-es.sh:/init-es.sh:ro
+      - ./elasticsearch/templates:/templates:ro
+    entrypoint: ["/bin/sh", "/init-es.sh"]
+
+  client:
+    build: {context: ., dockerfile: client/Dockerfile}
+    profiles: ["tools"]
+    environment: {API_URL: "http://api-server:8000"}
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.18.1
+    profiles: ["ui"]
+    environment:
+      ELASTICSEARCH_HOSTS: '["http://elasticsearch:9200"]'
+    ports: ["${KIBANA_PORT:-5601}:5601"]
+    depends_on:
+      elasticsearch: {condition: service_healthy}
+
+volumes:
+  rabbit-data:
+  redis-data:
+  es-data:
+  app-logs:

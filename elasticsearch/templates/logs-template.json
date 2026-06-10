@@ -1,0 +1,14 @@
+{
+  "index_patterns": ["logs-app-*"],
+  "priority": 500,
+  "data_stream": {},
+  "template": {
+    "settings": {"number_of_shards": 1, "number_of_replicas": 0},
+    "mappings": {"dynamic": true, "properties": {
+      "timestamp": {"type": "date"}, "service": {"type": "keyword"}, "environment": {"type": "keyword"},
+      "level": {"type": "keyword"}, "request_id": {"type": "keyword"}, "trace_id": {"type": "keyword"},
+      "route": {"type": "keyword"}, "method": {"type": "keyword"}, "status_code": {"type": "integer"},
+      "duration_ms": {"type": "long"}, "message": {"type": "text"}, "error": {"type": "text"}
+    }}
+  }
+}

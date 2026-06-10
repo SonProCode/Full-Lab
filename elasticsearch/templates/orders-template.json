@@ -1,0 +1,13 @@
+{
+  "index_patterns": ["orders*"],
+  "priority": 500,
+  "template": {
+    "settings": {"number_of_shards": 1, "number_of_replicas": 0},
+    "mappings": {"dynamic": "strict", "properties": {
+      "id": {"type": "keyword"}, "request_id": {"type": "keyword"}, "trace_id": {"type": "keyword"},
+      "client_id": {"type": "keyword"}, "status": {"type": "keyword"}, "message": {"type": "text"},
+      "amount": {"type": "double"}, "simulate_error": {"type": "boolean"},
+      "created_at": {"type": "date"}, "processed_at": {"type": "date"}
+    }}
+  }
+}

@@ -1,0 +1,1 @@
+{"vhosts":[{"name":"/"}],"users":[{"name":"lab","password_hash":"7fYn9R3KJ6OqG9TAy6zHIMBqp1JgM7SttDxzfLqYMcxbrJGi","hashing_algorithm":"rabbit_password_hashing_sha256","tags":["administrator"]}],"permissions":[{"user":"lab","vhost":"/","configure":".*","write":".*","read":".*"}]}

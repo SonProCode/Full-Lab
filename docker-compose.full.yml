@@ -1,0 +1,124 @@
+name: production-backend-lab-full
+x-rabbit: &rabbit
+  image: rabbitmq:4.1-management
+  environment:
+    RABBITMQ_DEFAULT_USER: lab
+    RABBITMQ_DEFAULT_PASS: lab
+    RABBITMQ_ERLANG_COOKIE: production-backend-lab-cookie
+  volumes:
+    - ./rabbitmq/rabbitmq-full.conf:/etc/rabbitmq/rabbitmq.conf:ro
+    - ./rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
+  healthcheck:
+    test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+    interval: 10s
+    timeout: 15s
+    retries: 20
+
+services:
+  rabbitmq1:
+    <<: *rabbit
+    hostname: rabbitmq1
+    ports: ["${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"]
+    volumes:
+      - rabbit1-data:/var/lib/rabbitmq
+      - ./rabbitmq/rabbitmq-full.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - ./rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
+  rabbitmq2:
+    <<: *rabbit
+    hostname: rabbitmq2
+    volumes:
+      - rabbit2-data:/var/lib/rabbitmq
+      - ./rabbitmq/rabbitmq-full.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - ./rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
+  rabbitmq3:
+    <<: *rabbit
+    hostname: rabbitmq3
+    volumes:
+      - rabbit3-data:/var/lib/rabbitmq
+      - ./rabbitmq/rabbitmq-full.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - ./rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
+  haproxy:
+    image: haproxy:3.1-alpine
+    ports: ["${RABBITMQ_PORT:-5672}:5672"]
+    volumes: ["./haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro"]
+    depends_on:
+      rabbitmq1: {condition: service_healthy}
+      rabbitmq2: {condition: service_healthy}
+      rabbitmq3: {condition: service_healthy}
+
+  redis:
+    image: redis:7.4-alpine
+    command: redis-server /usr/local/etc/redis/redis.conf
+    ports: ["${REDIS_PORT:-6379}:6379"]
+    volumes: [redis-data:/data, "./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro"]
+    healthcheck: {test: ["CMD", "redis-cli", "ping"], interval: 5s, timeout: 3s, retries: 20}
+  redis-replica:
+    image: redis:7.4-alpine
+    command: redis-server --replicaof redis 6379 --appendonly yes
+    depends_on: [redis]
+  redis-sentinel:
+    image: redis:7.4-alpine
+    command: sh -c "printf 'sentinel monitor labmaster redis 6379 1\nsentinel down-after-milliseconds labmaster 5000\nsentinel failover-timeout labmaster 10000\n' > /tmp/sentinel.conf && redis-server /tmp/sentinel.conf --sentinel"
+    depends_on: [redis, redis-replica]
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.18.1
+    environment: {discovery.type: single-node, xpack.security.enabled: "false", ES_JAVA_OPTS: "-Xms768m -Xmx768m"}
+    ports: ["${ELASTICSEARCH_PORT:-9200}:9200"]
+    volumes: [es-data:/usr/share/elasticsearch/data]
+    healthcheck: {test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health >/dev/null"], interval: 10s, timeout: 5s, retries: 30}
+
+  api-server:
+    build: {context: ., dockerfile: api-server/Dockerfile}
+    environment:
+      SERVICE_NAME: api-server
+      LOG_FILE: /logs/api.json.log
+      RABBITMQ_URL: amqp://lab:lab@haproxy:5672/%2F
+      RABBITMQ_QUEUE_TYPE: quorum
+      REDIS_URL: redis://redis:6379/0
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      RATE_LIMIT_PER_MINUTE: "10"
+    ports: ["${API_PORT:-8000}:8000"]
+    volumes: [app-logs:/logs]
+    depends_on: [haproxy, redis, elasticsearch]
+  consumer-worker:
+    build: {context: ., dockerfile: consumer-worker/Dockerfile}
+    environment:
+      SERVICE_NAME: consumer-worker
+      LOG_FILE: /logs/consumer.json.log
+      RABBITMQ_URL: amqp://lab:lab@haproxy:5672/%2F
+      RABBITMQ_QUEUE_TYPE: quorum
+      REDIS_URL: redis://redis:6379/0
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      MAX_RETRIES: "3"
+      RETRY_DELAY_MS: "3000"
+    volumes: [app-logs:/logs]
+    depends_on: [haproxy, redis, elasticsearch]
+  log-parser:
+    image: docker.elastic.co/logstash/logstash:8.18.1
+    environment: {ELASTICSEARCH_URL: "http://elasticsearch:9200", LS_JAVA_OPTS: "-Xms256m -Xmx256m", XPACK_MONITORING_ENABLED: "false"}
+    volumes: [app-logs:/logs:ro, "./log-parser/logstash.conf:/usr/share/logstash/pipeline/logstash.conf:ro"]
+    depends_on: [elasticsearch]
+  es-init:
+    image: curlimages/curl:8.13.0
+    profiles: ["tools"]
+    environment: {ELASTICSEARCH_URL: "http://elasticsearch:9200"}
+    volumes: ["./elasticsearch/init-es.sh:/init-es.sh:ro", "./elasticsearch/templates:/templates:ro"]
+    entrypoint: ["/bin/sh", "/init-es.sh"]
+  client:
+    build: {context: ., dockerfile: client/Dockerfile}
+    profiles: ["tools"]
+    environment: {API_URL: "http://api-server:8000"}
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.18.1
+    profiles: ["ui"]
+    environment: {ELASTICSEARCH_HOSTS: '["http://elasticsearch:9200"]'}
+    ports: ["${KIBANA_PORT:-5601}:5601"]
+
+volumes:
+  rabbit1-data:
+  rabbit2-data:
+  rabbit3-data:
+  redis-data:
+  es-data:
+  app-logs:
