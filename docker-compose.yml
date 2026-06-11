@@ -30,14 +30,25 @@ services:
       timeout: 3s
       retries: 20
 
+  es-snapshot-init:
+    image: alpine:3.21
+    command: chown -R 1000:0 /mnt/snapshots
+    user: "0"
+    volumes: [es-snapshots:/mnt/snapshots]
+
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.18.1
     environment:
       discovery.type: single-node
       xpack.security.enabled: "false"
+      path.repo: /mnt/snapshots
       ES_JAVA_OPTS: ${ES_JAVA_OPTS:--Xms512m -Xmx512m}
     ports: ["${ELASTICSEARCH_PORT:-9200}:9200"]
-    volumes: [es-data:/usr/share/elasticsearch/data]
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+      - es-snapshots:/mnt/snapshots
+    depends_on:
+      es-snapshot-init: {condition: service_completed_successfully}
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health >/dev/null"]
       interval: 10s
@@ -106,7 +117,9 @@ services:
   client:
     build: {context: ., dockerfile: client/Dockerfile}
     profiles: ["tools"]
-    environment: {API_URL: "http://api-server:8000"}
+    environment:
+      API_URL: "http://api-server:8000"
+      RABBITMQ_URL: "amqp://${RABBITMQ_USER:-lab}:${RABBITMQ_PASSWORD:-lab}@rabbitmq:5672/%2F"
 
   kibana:
     image: docker.elastic.co/kibana/kibana:8.18.1
@@ -121,4 +134,5 @@ volumes:
   rabbit-data:
   redis-data:
   es-data:
+  es-snapshots:
   app-logs:

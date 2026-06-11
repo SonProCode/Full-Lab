@@ -2,7 +2,16 @@
   "index_patterns": ["orders*"],
   "priority": 500,
   "template": {
-    "settings": {"number_of_shards": 1, "number_of_replicas": 0},
+    "settings": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0,
+      "index.search.slowlog.threshold.query.warn": "100ms",
+      "index.search.slowlog.threshold.query.info": "50ms",
+      "index.search.slowlog.threshold.fetch.warn": "100ms",
+      "index.indexing.slowlog.threshold.index.warn": "100ms",
+      "index.indexing.slowlog.threshold.index.info": "50ms",
+      "index.indexing.slowlog.include.user": true
+    },
     "mappings": {"dynamic": "strict", "properties": {
       "id": {"type": "keyword"}, "request_id": {"type": "keyword"}, "trace_id": {"type": "keyword"},
       "client_id": {"type": "keyword"}, "status": {"type": "keyword"}, "message": {"type": "text"},

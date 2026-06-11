@@ -84,6 +84,8 @@ docker compose -f docker-compose.full.yml exec rabbitmq1 rabbitmqctl cluster_sta
 docker compose -f docker-compose.full.yml exec rabbitmq1 rabbitmqctl list_queues name type online
 ```
 
+Quy trình thực hành từ khởi động, functional test, tải cao, quan sát bottleneck, chaos test đến backup/restore được hướng dẫn tại [docs/vi/full-lab.md](docs/vi/full-lab.md).
+
 Dừng một node RabbitMQ vẫn giữ được quorum hai node:
 
 ```bash

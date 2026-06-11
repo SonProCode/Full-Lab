@@ -3,7 +3,13 @@
   "priority": 500,
   "data_stream": {},
   "template": {
-    "settings": {"number_of_shards": 1, "number_of_replicas": 0},
+    "settings": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0,
+      "index.search.slowlog.threshold.query.warn": "250ms",
+      "index.search.slowlog.threshold.fetch.warn": "250ms",
+      "index.indexing.slowlog.threshold.index.warn": "250ms"
+    },
     "mappings": {"dynamic": true, "properties": {
       "timestamp": {"type": "date"}, "service": {"type": "keyword"}, "environment": {"type": "keyword"},
       "level": {"type": "keyword"}, "request_id": {"type": "keyword"}, "trace_id": {"type": "keyword"},

@@ -1,7 +1,7 @@
 COMPOSE=docker compose
 FULL=$(COMPOSE) -f docker-compose.full.yml
 
-.PHONY: up up-full down clean ps logs bootstrap test-normal test-idempotency test-rate-limit test-dlq test-log-trace \
+.PHONY: up up-full down clean ps logs bootstrap perf-full-http perf-full-search perf-full-rabbit perf-full-observe es-snapshot es-snapshot-list test-normal test-idempotency test-rate-limit test-dlq test-log-trace \
  chaos-stop-consumer chaos-start-consumer chaos-stop-rabbit-node chaos-start-rabbit-node chaos-stop-redis chaos-start-redis chaos-stop-elasticsearch chaos-start-elasticsearch
 
 up:
@@ -20,6 +20,18 @@ logs:
 	$(COMPOSE) logs -f --tail=100
 bootstrap:
 	$(COMPOSE) --profile tools run --rm es-init
+perf-full-http:
+	$(FULL) --profile tools run --rm --build --entrypoint python client perf_test.py http --count 2000 --concurrency 50
+perf-full-search:
+	$(FULL) --profile tools run --rm --build --entrypoint python client perf_test.py search --count 2000 --concurrency 50
+perf-full-rabbit:
+	$(FULL) --profile tools run --rm --build --entrypoint python client perf_test.py rabbit-persistence --count 5000 --payload-bytes 1024
+perf-full-observe:
+	./scripts/perf/observe_full.sh
+es-snapshot:
+	./scripts/elasticsearch/snapshot.sh create
+es-snapshot-list:
+	./scripts/elasticsearch/snapshot.sh list
 test-normal:
 	./scripts/test_normal_flow.sh
 test-idempotency:
